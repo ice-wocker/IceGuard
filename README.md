@@ -1,7 +1,7 @@
 # Ice 防护（IceGuard）
 
 [![Android CI](https://github.com/ice-wocker/IceGuard/actions/workflows/build.yml/badge.svg)](https://github.com/ice-wocker/IceGuard/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/ice-wocker/IceGuard?label=release&color=2ea44f)](https://github.com/ice-wocker/IceGuard/releases/latest)
+[![Release](https://img.shields.io/github/v/release/ice-wocker/IceGuard?include_prereleases&label=release&color=2ea44f)](https://github.com/ice-wocker/IceGuard/releases)
 [![License](https://img.shields.io/github/license/ice-wocker/IceGuard?color=blue)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)](#)
 [![minSdk](https://img.shields.io/badge/minSdk-26-blue)](#)
