@@ -1,5 +1,12 @@
 # Ice 防护（IceGuard）
 
+[![Android CI](https://github.com/ice-wocker/IceGuard/actions/workflows/build.yml/badge.svg)](https://github.com/ice-wocker/IceGuard/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/ice-wocker/IceGuard?label=release&color=2ea44f)](https://github.com/ice-wocker/IceGuard/releases/latest)
+[![License](https://img.shields.io/github/license/ice-wocker/IceGuard?color=blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Android-3DDC84?logo=android&logoColor=white)](#)
+[![minSdk](https://img.shields.io/badge/minSdk-26-blue)](#)
+[![No Internet](https://img.shields.io/badge/permission-%E6%97%A0%20INTERNET-critical)](#%E6%9D%83%E9%99%90%E8%AF%B4%E6%98%8E)
+
 > 一个**完全本地运行**的 Android 安全体检工具。不联网、不上传、无追踪。
 
 Ice 防护通过审计已安装应用的权限组合、检测设备环境风险、静态分析本地安装包，
