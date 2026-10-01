@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ice 防护</string>
+    <string name="app_slogan">本地安全体检 · 无联网 · 无上传</string>
+
+    <string name="home_title">Ice 防护</string>
+    <string name="home_start_check">开始安全体检</string>
+    <string name="home_checking">正在体检…</string>
+    <string name="home_score_label">安全评分</string>
+    <string name="home_never_checked">尚未体检</string>
+
+    <string name="module_permission">应用权限审计</string>
+    <string name="module_environment">设备环境检测</string>
+    <string name="module_apk">安装包静态扫描</string>
+
+    <string name="action_rescan">重新体检</string>
+    <string name="action_export">导出报告</string>
+    <string name="action_clear">清空历史</string>
+    <string name="action_back">返回</string>
+
+    <string name="disclaimer">本应用全部分析在设备本地完成，不联网、不上传任何数据。评分基于权限组合与设备环境的启发式评估，用于提示关注方向，不构成对任何应用性质的判定结论。</string>
+</resources>

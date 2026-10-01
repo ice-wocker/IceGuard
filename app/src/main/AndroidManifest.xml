@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        权限声明说明（最小化原则）：
+        QUERY_ALL_PACKAGES：Android 11+ 需此权限才能枚举全部已安装应用，这是权限审计功能的前提。
+        READ_EXTERNAL_STORAGE：读取存储中的 APK 文件进行静态扫描（仅 Android 12 及以下需要）。
+        本应用不申请 INTERNET 权限——全部分析在本地完成，不存在任何数据上传通道。
+    -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"/>
+
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+
+    <application
+        android:name=".IceGuardApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.IceGuard">
+
+        <activity
+            android:name=".ui.home.MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.audit.AuditActivity"
+            android:exported="false"
+            android:label="应用权限审计"
+            android:parentActivityName=".ui.home.MainActivity"/>
+
+        <activity
+            android:name=".ui.apk.ApkScanActivity"
+            android:exported="false"
+            android:label="安装包扫描"
+            android:parentActivityName=".ui.home.MainActivity"/>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
+
+    </application>
+
+</manifest>
