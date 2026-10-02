@@ -40,6 +40,17 @@
     </LinearLayout>
 
     <TextView
+        android:id="@+id/auditPrivilegeHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/bg_surface"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="11dp"
+        android:text=""
+        android:textColor="@color/risk_medium"
+        android:textSize="12sp"/>
+
+    <TextView
         android:id="@+id/auditLoading"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

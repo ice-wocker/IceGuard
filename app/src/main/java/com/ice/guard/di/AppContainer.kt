@@ -3,6 +3,7 @@ package com.ice.guard.di
 import android.content.Context
 import com.ice.guard.core.scanner.ApkScanEngine
 import com.ice.guard.core.scanner.EnvironmentCheckEngine
+import com.ice.guard.core.privilege.DisposalEngine
 import com.ice.guard.core.scanner.PermissionAuditEngine
 import com.ice.guard.data.ScanHistoryStore
 
@@ -25,6 +26,8 @@ object AppContainer {
     val apkScan: ApkScanEngine by lazy { ApkScanEngine(appContext) }
 
     val environmentCheck: EnvironmentCheckEngine by lazy { EnvironmentCheckEngine(appContext) }
+
+    val disposal: DisposalEngine by lazy { DisposalEngine(appContext) }
 
     val historyStore: ScanHistoryStore by lazy { ScanHistoryStore(appContext) }
 }

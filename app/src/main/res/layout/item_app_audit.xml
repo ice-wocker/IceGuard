@@ -64,4 +64,17 @@
         android:textSize="12sp"
         android:visibility="gone"/>
 
+    <TextView
+        android:id="@+id/appDispose"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/bg_button_ghost"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="7dp"
+        android:text="处置"
+        android:textColor="@color/accent_cyan"
+        android:textSize="12sp"/>
+
 </LinearLayout>
