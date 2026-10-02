@@ -10,3 +10,15 @@
 # AndroidX 基础保留
 -keep class androidx.appcompat.** { *; }
 -dontwarn androidx.**
+
+# —— Shizuku UserService 相关 ——
+# 该服务类由 Shizuku 在独立进程中以反射方式实例化（默认构造器 / Context 构造器），
+# 类名与构造器一旦被混淆/裁剪，服务就无法启动，处置功能会静默失效。
+-keep class com.ice.guard.core.privilege.UserService { *; }
+-keep class com.ice.guard.IUserService { *; }
+-keep class com.ice.guard.IUserService$Stub { *; }
+-keep class com.ice.guard.IUserService$Stub$Proxy { *; }
+-keep class rikka.shizuku.** { *; }
+-keep class moe.shizuku.** { *; }
+-dontwarn rikka.shizuku.**
+-dontwarn moe.shizuku.**
