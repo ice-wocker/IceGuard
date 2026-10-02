@@ -146,7 +146,9 @@ Root 检测为启发式判断，存在误报与漏报的可能。
 
 ## 许可证
 
-[MIT License](LICENSE)
+本应用自身代码以 [MIT License](LICENSE) 发布。
+
+内含的第三方组件沿用其各自许可证，完整清单见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)，署名与修改说明（含 Apache 2.0 / MPL 2.0 全文）见 [`NOTICE`](NOTICE)。
 
 ## 贡献
 
