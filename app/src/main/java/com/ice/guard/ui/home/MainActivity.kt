@@ -12,8 +12,10 @@ import com.ice.guard.R
 import com.ice.guard.core.report.ScanReport
 import com.ice.guard.core.scanner.HealthCheckCoordinator
 import com.ice.guard.di.AppContainer
+import com.ice.guard.core.privilege.ShizukuBridge
 import com.ice.guard.ui.apk.ApkScanActivity
 import com.ice.guard.ui.audit.AuditActivity
+import com.ice.guard.ui.privilege.PrivilegeGuideActivity
 import kotlinx.coroutines.launch
 
 /**
@@ -61,8 +63,27 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.apkButton).setOnClickListener {
             startActivity(Intent(this, ApkScanActivity::class.java))
         }
+        findViewById<View>(R.id.privilegeButton).setOnClickListener {
+            startActivity(Intent(this, PrivilegeGuideActivity::class.java))
+        }
 
         loadLastReport()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        renderPrivilegeSubtitle()
+    }
+
+    /** 让首页的「权限与处置」入口如实显示当前授权状态，而不是一句写着好看的口号 */
+    private fun renderPrivilegeSubtitle() {
+        val subtitle = findViewById<TextView>(R.id.privilegeSubtitle) ?: return
+        subtitle.text = when (ShizukuBridge.state(this)) {
+            ShizukuBridge.State.GRANTED -> "已授权 · 可停用/卸载"
+            ShizukuBridge.State.PERMISSION_REQUIRED -> "待授权"
+            ShizukuBridge.State.SERVICE_NOT_RUNNING -> "服务未运行"
+            ShizukuBridge.State.NOT_INSTALLED -> "未授权"
+        }
     }
 
     /** 载入上次体检结果，避免每次进入都要重新扫描 */

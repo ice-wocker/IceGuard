@@ -123,6 +123,35 @@
                     android:textColor="@color/text_tertiary"
                     android:textSize="11sp"/>
             </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/privilegeButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingVertical="18dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="权限与处置"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/privilegeSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="未授权"
+                    android:textColor="@color/text_tertiary"
+                    android:textSize="11sp"/>
+            </LinearLayout>
         </LinearLayout>
 
         <!-- 体检按钮 -->

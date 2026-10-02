@@ -41,6 +41,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        aidl = true
     }
 
     packaging {
@@ -59,6 +60,12 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // Shizuku API（Apache-2.0）：以 ADB（无线调试）权限执行系统命令，
+    // 用于「处置」已标记的高风险应用。仅引入官方 API 与 provider 两个制品，
+    // 不内嵌、不重打包 Shizuku 应用本体。
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 
     testImplementation("junit:junit:4.13.2")
 }

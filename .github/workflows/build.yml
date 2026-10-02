@@ -37,6 +37,11 @@ jobs:
       - name: Build debug APK
         run: ./gradlew assembleDebug
 
+      # release 构建会跑 R8 混淆，用于验证 ProGuard 规则没有裁掉
+      # Shizuku UserService / AIDL 这些靠反射实例化的类
+      - name: Build release APK (R8 check)
+        run: ./gradlew assembleRelease
+
       - name: Verify APK exists
         run: |
           set -e
@@ -55,6 +60,17 @@ jobs:
           name: iceguard-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Verify release APK exists
+        run: |
+          set -e
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then
+            echo "❌ 没有找到 release APK 产物"
+            exit 1
+          fi
+          echo "✅ release APK: $APK"
+          ls -lh "$APK"
 
       - name: Upload build reports on failure
         if: failure()
