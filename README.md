@@ -34,22 +34,43 @@ Ice 防护的设计原则相反：
 | **设备环境检测** | Root 痕迹、危险设置、无障碍服务、设备管理器 | 多策略交叉探测 + 系统设置读取 |
 | **安全体检** | 一键串联全部分析，生成百分制评分 | 加权汇总模型 |
 | **报告导出** | Markdown / JSON 格式 | 自研序列化 |
-| **新装应用自动检测** | 监听 `PACKAGE_ADDED`，新应用装完立即体检，高危则本地告警 | 系统广播 + 权限组合评分 |
-| **应用处置（可选授权）** | 停用 / 卸载 / 清除数据 / 撤销权限已标记的应用 | Shizuku（ADB 级权限）`pm` 命令 |
+| **安全守护（四条检测通道）** | 安装 / 更新、开机自检、前台唤醒、周期巡检，事件一到即判定并处置 | 广播 + WorkManager + UsageStats/无障碍事件 |
+| **秒级终止（可选授权）** | 亚秒级 `am force-stop` 杀进程，按策略追加 `pm disable-user` 冻结 | Shizuku（ADB 级权限）`am` / `pm` 命令 |
+| **应用处置（可选授权）** | 终止 / 停用 / 卸载 / 清除数据 / 撤销权限已标记的应用 | Shizuku（ADB 级权限）`pm` 命令 |
+| **组件级清单分析** | 解析 activity/service/receiver/provider 与 `exported`，识别暴露面 | 自研 AXML 解析器 + PackageManager |
+| **安装来源与签名检测** | 侧载识别、调试标志、证书 SHA-256（供自行核对） | PackageManager + InstallSourceInfo |
+| **拦截日志** | 每次判定与处置的时间、通道、命令返回全部留痕 | 本地 SharedPreferences |
+
+### 「1 秒终止」到底能做到什么程度
+
+这是最容易被夸大的一句话，所以这里把边界写清楚：
+
+- ✅ **终止是真的**：经 Shizuku 授权后，`am force-stop` 会在**亚秒级真正结束目标进程**，
+  且不像 `kill` 那样被系统立刻拉起；再追加 `pm disable-user` 可让它彻底起不来。
+  日志里会记录实际耗时与命令返回，可在设备上自行核验。
+- ❌ **"监控到病毒发作"做不到**：Android 沙箱隔离了应用间观测，第三方应用看不到别的应用的
+  行为、内存与日志。因此不存在"实时行为监控"这种能力。
+- ⚠️ **所以本项目给的是「事件驱动的秒级响应」**：在**可观测事件**（安装、更新、开机、
+  应用被切到前台、周期巡检）发生时，立即完成判定与处置。瓶颈在**检测**，不在**终止**。
+
+任何宣称能在非 Root 手机上"实时监控病毒行为并 1 秒击杀"的产品，要么依赖 Root，
+要么在夸大其词——本项目的取舍是把能做的做扎实，做不了的如实说。
 
 ### 明确不做的功能
 
 以下能力在非 Root 的现代 Android 上第三方应用**无法实现**，因此本项目不提供：
 
-- ❌ 实时后台拦截 / 终止恶意进程（系统隔离了应用间进程监控；即便有 ADB 权限也读不到别的应用内存）
+- ❌ 实时**行为**监控（看不到别的应用在做什么；上面已说明本项目改用事件驱动）
 - ❌ 云端病毒库比对（本项目不联网，也不收集样本）
-- ❌ 用无障碍服务模拟点击"清理"（这正是许多安全应用滥用的高危权限）
+- ❌ 用无障碍服务**模拟点击**"清理"（这正是许多安全应用滥用的高危权限；
+  本项目的无障碍通道只读包名，不具备也不使用任何操作能力）
 - ❌ 安装前阻止安装（系统没有给第三方应用这个 API）
 
 **关于"处置"的诚实边界**：授权 Shizuku 后拿到的是 shell（ADB，uid 2000）级权限，
-能做的是**装后处置**——`pm disable-user` 停用、`pm uninstall` 卸载、
-`pm clear` 清除数据、`pm revoke` 撤销权限。
-这不是"实时拦截"，但它是非 Root 手机上真能生效的最强手段。
+能做的仍是包管理层面的动作——`am force-stop` 终止、`pm disable-user` 停用、
+`pm uninstall` 卸载、`pm clear` 清除数据、`pm revoke` 撤销权限。
+**读不到其他应用的内存，也看不到它的行为**。这不是"实时拦截"，
+但它是非 Root 手机上真能生效的最强手段。
 
 ## 核心设计
 
@@ -58,7 +79,7 @@ Ice 防护的设计原则相反：
 单个高危权限判别力有限——绝大多数正常应用都需要存储权限。
 真正有判别力的是**权限组合**。
 
-Ice 防护内置 9 条组合规则，例如：
+Ice 防护内置 18 条组合规则，例如：
 
 | 组合 | 追加权重 | 判定理由 |
 |---|---|---|
@@ -86,21 +107,73 @@ APK 内的 `AndroidManifest.xml` 是编译后的二进制格式，无法当作�
 - 所有越界访问均有防护，单个属性解析失败不影响整体
 - 解析异常统一转为 `success=false` 返回值，不向调用方抛异常
 
-解析器正确性由**真实样本**验证：测试夹具 `real_manifest.axml` 是 AAPT2
-编译本工程产生的二进制清单（6228 字节），期望值取自 `aapt2 dump xmltree` 输出。
+解析器正确性由**真实样本**验证：测试夹具 `real_manifest.axml` 直接从本工程的
+debug APK 中取出的、经 AAPT2 编译与 manifest merger 合并后的二进制清单
+（17940 字节，含 25+ 个组件），期望值全部取自 `aapt2 dump xmltree` 输出：
+
+```bash
+unzip -o app-debug.apk AndroidManifest.xml -d /tmp        # 即为夹具本身
+aapt2 dump xmltree --file AndroidManifest.xml app-debug.apk   # 权威对照
+```
+
+### 安全守护：四条检测通道 + 一条统一响应管线
+
+```
+通道 1  安装 / 更新        PACKAGE_ADDED · PACKAGE_REPLACED        （零特殊权限）
+通道 2  开机自检           BOOT_COMPLETED                         （零特殊权限）
+通道 3  前台唤醒           前台监听（需「使用情况访问」授权）         （默认关闭）
+通道 4  无障碍前台事件     只读包名，不读内容、不模拟操作            （默认关闭）
+        ─────────────────────────────────────────────────────────
+        周期巡检兜底        WorkManager，最小间隔 15 分钟
+                │
+                ▼
+        AutoResponder：取分 → 读策略 → 决策 →（可选）终止 → 落日志 → 通知
+```
+
+**决策优先级**（实现见 [`AutoResponder.kt`](app/src/main/java/com/ice/guard/core/guard/AutoResponder.kt)）：
+
+1. 评分 < 阈值 → 忽略，**不写日志**，避免把日志变成流水账；
+2. 评分 ≥ 阈值，但未开自动处置 / 未授权 Shizuku → **只告警**（默认行为）；
+3. 评分 ≥ 阈值且允许自动处置 → `am force-stop`，按策略追加 `pm disable-user`。
+
+三个容易被忽略的工程细节：
+
+- **默认绝不自动动手**：`autoRespond` 默认 `false`，默认状态下本应用只提醒、不处置。
+- **前台通道带 10 分钟体检缓存 + 30 秒处置节流**：否则每次切换应用都要查一遍
+  PackageManager，会拖慢整机。
+- **状态漂移检测**：开机巡检会复查"曾被冻结的应用是否又活了"——单次处置不是终点。
 
 ## 权限说明
 
-本应用声明三项权限：
+本应用声明以下权限，每一项都有明确的单一用途：
 
 | 权限 | 用途 | 必要性 |
 |---|---|---|
 | `QUERY_ALL_PACKAGES` | Android 11+ 枚举已安装应用 | 权限审计功能的前提 |
 | `READ_EXTERNAL_STORAGE`（≤ Android 12） | 读取存储中的 APK 文件 | 安装包扫描功能 |
-| `POST_NOTIFICATIONS`（Android 13+） | 新装应用高危时发本地提醒 | 自动检测告警 |
+| `POST_NOTIFICATIONS`（Android 13+） | 发现高风险应用、或已执行终止时发本地提醒 | 守护告警 |
+| `RECEIVE_BOOT_COMPLETED` | 开机后重排巡检任务并跑一次开机自检 | 守护通道 2 |
+| `FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE` | 守护模式的常驻通知（Android 14 起前台服务必须声明类型） | 守护模式（默认关闭） |
+| `PACKAGE_USAGE_STATS` | 前台唤醒监听（需**用户在系统设置中手动授予**，应用无法自行申请） | 守护通道 3（默认关闭） |
 
 处置功能**不通过声明系统权限实现**，而是经用户显式授权后借用 Shizuku 的 shell 权限，
 可随时在 Shizuku 应用中撤销。
+
+守护模式、自动处置、前台监听**均为默认关闭**，由用户在「守护中心」自行开启。
+
+### 无障碍通道的自我限制
+
+守护通道 4 使用无障碍服务，但只用了它能力的**最小一片**：
+
+| 能力 | 本项目 |
+|---|---|
+| 读取屏幕内容 | ❌ `canRetrieveWindowContent=false` |
+| 模拟点击 / 手势 | ❌ 未声明 `canPerformGestures`，代码中不存在 `dispatchGesture` / `performAction` |
+| 读取输入文本 | ❌ 只监听 `typeWindowStateChanged`，不监听文本事件 |
+| 获知"哪个应用被打开" | ✅ 仅此一项，用于触发风险判定 |
+
+配置见 [`accessibility_service_config.xml`](app/src/main/res/xml/accessibility_service_config.xml)，
+代码见 [`GuardAccessibilityService.kt`](app/src/main/java/com/ice/guard/core/guard/GuardAccessibilityService.kt)。
 
 **不申请 `INTERNET` 权限**——这意味着应用在技术上不具备任何联网能力，
 不存在数据外传的通道。可通过 `aapt2 dump permissions` 自行验证编译产物。
@@ -179,9 +252,10 @@ Shizuku 要以 shell 身份启动一个服务进程，而"以 shell 身份启动
 ## 技术栈
 
 - Kotlin 1.9.24
-- AndroidX（appcompat / recyclerview / constraintlayout / lifecycle）
+- AndroidX（appcompat / recyclerview / constraintlayout / lifecycle / work）
 - Kotlin Coroutines
 - AGP 8.5.2
+- Shizuku API 13.1.5（Apache-2.0，仅 api + provider 两个制品）
 
 **业务逻辑零第三方依赖**：评分引擎、AXML 解析器、报告序列化、
 界面动效组件均为自行实现。
@@ -189,14 +263,21 @@ Shizuku 要以 shell 身份启动一个服务进程，而"以 shell 身份启动
 ## 测试
 
 ```
-22 个单元测试，全部通过
+69 个单元测试，全部通过
 
-PermissionRulesTest (9)  权限评分模型：组合命中、阈值边界、误报控制
-AxmlParserTest     (13)  解析器：真实样本、健壮性、异常输入
+PermissionRulesTest  (16)  权限评分模型：组合命中、阈值边界、误报控制、规则合法性
+AxmlParserTest       (22)  解析器：真实样本、组件级解析、健壮性、异常输入
+ComponentAnalyzerTest(11)  组件暴露面：误报控制、绑定服务识别、启动器排除
+AutoResponderTest    (10)  守护决策：阈值边界、授权与否、用户主动处置
+ShellResultTest       (5)  成败判定只看 exitCode、摘要回退、超时编码
+InstallMonitorTest    (5)  告警阈值行为锁定（防骚扰）
 ```
 
 健壮性用例覆盖：空数据、过短数据、非 AXML 数据、截断样本、
 字节翻转样本——验证解析器在任何输入下都不崩溃。
+
+守护决策链路的用例刻意锁死的是「什么情况下**不会**动手」：
+默认策略下即使评分 100 也只告警；未授权 Shizuku 时绝不尝试终止。
 
 ## 免责声明
 

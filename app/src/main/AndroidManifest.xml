@@ -23,6 +23,21 @@
     <uses-permission
         android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!--
+        守护模式相关权限：
+        RECEIVE_BOOT_COMPLETED：开机后重排巡检任务并跑一次开机自检。
+        FOREGROUND_SERVICE / FOREGROUND_SERVICE_SPECIAL_USE：守护模式的常驻通知
+            （Android 14 起前台服务必须声明类型；本用途无法归入既有类型，故用 specialUse）。
+        PACKAGE_USAGE_STATS：前台唤醒监听所需的特殊权限，**必须由用户在系统设置中手动授予**，
+            应用无法自行申请。未授予时该通道自动跳过，其余功能不受影响。
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions"/>
+
     <application
         android:name=".IceGuardApp"
         android:allowBackup="false"
@@ -54,17 +69,68 @@
             android:label="安装包扫描"
             android:parentActivityName=".ui.home.MainActivity"/>
 
-        <!-- 新装应用监听：系统广播，无需任何特殊权限即可收到 PACKAGE_ADDED -->
+        <activity
+            android:name=".ui.guard.GuardCenterActivity"
+            android:exported="false"
+            android:label="守护中心"
+            android:parentActivityName=".ui.home.MainActivity"/>
+
+        <!-- 守护通道 1：新装 / 更新应用。系统广播，无需任何特殊权限 -->
         <receiver
             android:name=".core.monitor.InstallMonitorReceiver"
             android:exported="true"
             android:enabled="true">
             <intent-filter>
                 <action android:name="android.intent.action.PACKAGE_ADDED"/>
-                <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED"/>
+                <action android:name="android.intent.action.PACKAGE_REPLACED"/>
                 <data android:scheme="package"/>
             </intent-filter>
         </receiver>
+
+        <!-- 守护通道 2：开机自检 -->
+        <receiver
+            android:name=".core.guard.BootGuardReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
+
+        <!-- 通知动作：承载「立即终止」按钮。限定包内广播，外部应用无法触发 -->
+        <receiver
+            android:name=".core.guard.GuardActionReceiver"
+            android:exported="false"/>
+
+        <!-- 守护通道 3 的载体：常驻前台服务 -->
+        <service
+            android:name=".core.guard.GuardService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="local_security_guard"/>
+        </service>
+
+        <!--
+            守护通道 4：无障碍事件。只监听窗口状态变化、只读取包名。
+            配置见 res/xml/accessibility_service_config.xml：
+            canRetrieveWindowContent=false，且未声明 canPerformGestures，
+            服务在能力上不可能读取屏幕内容或模拟点击。
+        -->
+        <service
+            android:name=".core.guard.GuardAccessibilityService"
+            android:exported="true"
+            android:label="@string/guard_title"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config"/>
+        </service>
 
         <!--
             Shizuku Provider：Shizuku API 的固定接入点。

@@ -11,8 +11,14 @@ import org.junit.Test
  * AXML 解析器测试。
  *
  * 重要说明：本测试使用的 `real_manifest.axml` 是真实样本——
- * 由 AAPT2 编译 IceGuard 自身产生的二进制清单文件（6228 字节）。
- * 期望值取自 `aapt2 dump xmltree` 的输出，作为权威对照基准。
+ * 直接从 IceGuard 自身 debug APK 中取出的、经 AAPT2 编译与 manifest merger
+ * 合并后的二进制清单（17940 字节，含 25+ 个组件）。
+ * 期望值全部取自 `aapt2 dump xmltree` 的输出，作为权威对照基准：
+ *
+ * ```
+ * aapt2 dump xmltree --file AndroidManifest.xml app-debug.apk
+ * unzip -o app-debug.apk AndroidManifest.xml -d <dir>   # 即为本夹具
+ * ```
  *
  * 这组用例的目的是确保解析器在真实 AAPT2 输出上可用，
  * 而非仅通过手工构造的理想数据。
@@ -25,7 +31,7 @@ class AxmlParserTest {
     @Test
     fun `样本文件应能加载且大小正确`() {
         val bytes = loadSample()
-        assertEquals("真实样本大小应为 6228 字节", 6228, bytes.size)
+        assertEquals("真实样本大小应为 17940 字节", 17940, bytes.size)
         // 校验文件头为 RES_XML_TYPE
         assertEquals("头部类型应为 0x0003", 0x03, bytes[0].toInt() and 0xFF)
         assertEquals(0x00, bytes[1].toInt() and 0xFF)
@@ -51,6 +57,19 @@ class AxmlParserTest {
         assertTrue(
             "应包含 READ_EXTERNAL_STORAGE，实际：${info.permissions}",
             info.permissions.contains("android.permission.READ_EXTERNAL_STORAGE")
+        )
+        // 1.1.0 新增的守护相关权限也应被解析出来
+        assertTrue(
+            "应包含 RECEIVE_BOOT_COMPLETED，实际：${info.permissions}",
+            info.permissions.contains("android.permission.RECEIVE_BOOT_COMPLETED")
+        )
+        assertTrue(
+            "应包含 PACKAGE_USAGE_STATS，实际：${info.permissions}",
+            info.permissions.contains("android.permission.PACKAGE_USAGE_STATS")
+        )
+        assertFalse(
+            "本应用不应申请 INTERNET 权限",
+            info.permissions.contains("android.permission.INTERNET")
         )
     }
 
@@ -145,5 +164,146 @@ class AxmlParserTest {
         val info = AxmlParser.parseFromApk(java.io.File("/nonexistent/path/fake.apk"))
         assertFalse(info.success)
         assertNotNull(info.error)
+    }
+
+    // ———————————————————— 组件级解析（1.1.0 新增） ————————————————————
+
+    @Test
+    fun `应从真实清单中解析出组件`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        assertTrue("解析应成功，实际错误：${info.error}", info.success)
+        assertTrue(
+            "应解析出足够多的组件，实际 ${info.components.size} 个",
+            info.components.size >= 10
+        )
+        // 四类组件都应出现
+        AxmlParser.ComponentType.entries.forEach { type ->
+            assertTrue(
+                "清单中应包含 $type 类型组件",
+                info.components.any { it.type == type }
+            )
+        }
+    }
+
+    @Test
+    fun `应识别导出的启动器 Activity 及其 MAIN action`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        val main = info.components.firstOrNull { it.name == "com.ice.guard.ui.home.MainActivity" }
+        assertNotNull("应解析到 MainActivity，实际：${info.components.map { it.name }}", main)
+
+        assertEquals(AxmlParser.ComponentType.ACTIVITY, main!!.type)
+        assertEquals("应显式声明 exported=true", true, main.exportedExplicit)
+        assertTrue(
+            "应解析出 MAIN action，实际：${main.actions}",
+            main.actions.contains("android.intent.action.MAIN")
+        )
+        assertTrue("MainActivity 应判定为可导出", main.exported)
+    }
+
+    @Test
+    fun `应识别显式关闭导出的 Activity`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        val audit = info.components
+            .firstOrNull { it.name == "com.ice.guard.ui.audit.AuditActivity" }
+        assertNotNull("应解析到 AuditActivity", audit)
+
+        assertEquals("应显式声明 exported=false", false, audit!!.exportedExplicit)
+        assertFalse("显式 exported=false 不应被判为可导出", audit.exported)
+    }
+
+    @Test
+    fun `应识别新装监听接收器及其声明的 action`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        val receiver = info.components.firstOrNull {
+            it.name == "com.ice.guard.core.monitor.InstallMonitorReceiver"
+        }
+        assertNotNull("应解析到 InstallMonitorReceiver", receiver)
+
+        assertEquals(AxmlParser.ComponentType.RECEIVER, receiver!!.type)
+        assertTrue(
+            "应带 PACKAGE_ADDED，实际：${receiver.actions}",
+            receiver.actions.contains("android.intent.action.PACKAGE_ADDED")
+        )
+        assertTrue(
+            "应带 PACKAGE_REPLACED，实际：${receiver.actions}",
+            receiver.actions.contains("android.intent.action.PACKAGE_REPLACED")
+        )
+        assertTrue("该接收器应判定为可导出", receiver.exported)
+    }
+
+    @Test
+    fun `应识别开机自检接收器`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        val boot = info.components.firstOrNull {
+            it.name == "com.ice.guard.core.guard.BootGuardReceiver"
+        }
+        assertNotNull("应解析到 BootGuardReceiver", boot)
+        assertTrue(
+            "应带 BOOT_COMPLETED，实际：${boot!!.actions}",
+            boot.actions.contains("android.intent.action.BOOT_COMPLETED")
+        )
+    }
+
+    @Test
+    fun `应解析出无障碍服务的绑定权限`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        val a11y = info.components.firstOrNull {
+            it.name == "com.ice.guard.core.guard.GuardAccessibilityService"
+        }
+        assertNotNull("应解析到无障碍服务", a11y)
+        assertEquals(
+            "android.permission.BIND_ACCESSIBILITY_SERVICE",
+            a11y!!.permission
+        )
+        assertFalse(
+            "带 BIND_ACCESSIBILITY_SERVICE 的组件不应被视为无保护暴露",
+            a11y.unprotected
+        )
+    }
+
+    @Test
+    fun `应识别 Provider 组件并区分是否受权限保护`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        val providers = info.components.filter { it.type == AxmlParser.ComponentType.PROVIDER }
+        assertTrue(
+            "应解析出 Provider，实际组件：${info.components.map { it.name }}",
+            providers.isNotEmpty()
+        )
+
+        // ShizukuProvider 声明了 INTERACT_ACROSS_USERS_FULL，属于受保护组件
+        val shizuku = providers.firstOrNull { it.name.contains("ShizukuProvider") }
+        assertNotNull("应解析到 ShizukuProvider", shizuku)
+        assertEquals(
+            "android.permission.INTERACT_ACROSS_USERS_FULL",
+            shizuku!!.permission
+        )
+        assertFalse("受权限保护的 Provider 不应算暴露", shizuku.unprotected)
+    }
+
+    @Test
+    fun `每个组件名都应有明确的类型归属`() {
+        val info = AxmlParser.parseBytes(loadSample())
+        info.components.forEach { c ->
+            assertTrue("组件名不应为空", c.name.isNotBlank())
+            assertTrue(
+                "组件类型应属于四类之一",
+                AxmlParser.ComponentType.entries.contains(c.type)
+            )
+        }
+    }
+
+    @Test
+    fun `未声明 exported 时按有无 intent-filter 推断`() {
+        // 行为约定：未显式声明时，按 Android 12 之前的系统默认——
+        // 带 intent-filter 的组件默认可导出
+        val withFilter = AxmlParser.ComponentInfo(
+            AxmlParser.ComponentType.SERVICE, ".S1", null, null, listOf("com.x.ACTION")
+        )
+        val withoutFilter = AxmlParser.ComponentInfo(
+            AxmlParser.ComponentType.SERVICE, ".S2", null, null, emptyList()
+        )
+        assertTrue(withFilter.exported)
+        assertFalse(withoutFilter.exported)
+        assertTrue("带 intent-filter 且无权限保护应视为暴露", withFilter.unprotected)
     }
 }

@@ -9,6 +9,7 @@ import android.content.Context
  * ## 能做什么（真能生效）
  * | 操作 | 命令 | 效果 |
  * |---|---|---|
+ * | **终止进程** | `am force-stop <pkg>` | **立刻杀掉该应用的全部进程，并阻止系统自动重新拉起** |
  * | 停用 | `pm disable-user --user 0 <pkg>` | 应用被冻结，图标消失，无法运行 |
  * | 启用 | `pm enable <pkg>` | 恢复被停用的应用 |
  * | 卸载 | `pm uninstall --user 0 <pkg>` | 卸载（仅当前用户，可恢复） |
@@ -16,11 +17,13 @@ import android.content.Context
  * | 撤销权限 | `pm revoke <pkg> <perm>` | 收回指定运行时权限 |
  * | 列表确认 | `pm list packages -d` | 核对停用状态 |
  *
- * ## 做不到什么（诚实声明）
- * - **看不到、也杀不掉别的应用进程**。即使有 shell 权限，`kill` 也只是让进程重启，
- *   且无法读取其内存与实时行为。所以本引擎没有"实时拦截病毒进程"这一项，
- *   不做无法验证的承诺。
- * - **判定仍是启发式的**。本引擎只执行用户确认过的处置动作，不下"这是病毒"的结论。
+ * ## 「1 秒终止」到底能到什么程度（诚实声明）
+ * - **终止是真的**：`am force-stop` 由 shell 执行时会在亚秒级真正结束目标进程，
+ *   且不像 `kill` 那样被系统立刻拉起。配合 `pm disable-user` 可做到"停不下来又起不来"。
+ * - **但"发现"做不到实时**：本应用看不到别的应用的行为与内存，
+ *   所以触发时机来自**可观测事件**（安装 / 开机 / 前台唤醒 / 周期巡检），
+ *   而不是"监控到病毒发作"。瓶颈在检测，不在终止。
+ * - **判定仍是启发式的**：本引擎只执行策略允许的处置动作，不下"这是病毒"的结论。
  */
 class DisposalEngine(private val context: Context) {
 
@@ -28,6 +31,11 @@ class DisposalEngine(private val context: Context) {
 
     /** 处置动作类型 */
     enum class Action(val title: String, val description: String, val confirmHint: String) {
+        FORCE_STOP(
+            "终止进程",
+            "立刻杀掉该应用的全部进程，并阻止系统自动重新拉起；应用数据保留，下次手动打开仍可运行",
+            "将立即终止该应用的所有进程。确定继续？"
+        ),
         DISABLE(
             "停用应用",
             "冻结该应用：图标消失、无法运行，数据保留，可随时恢复",
@@ -74,11 +82,34 @@ class DisposalEngine(private val context: Context) {
         require(packageName.isNotBlank()) { "packageName 不能为空" }
         ensureService()
         return when (action) {
+            Action.FORCE_STOP -> shell.exec("am", "force-stop", packageName)
             Action.DISABLE -> shell.exec("pm", "disable-user", "--user", "0", packageName)
             Action.ENABLE -> shell.exec("pm", "enable", packageName)
             Action.UNINSTALL -> shell.exec("pm", "uninstall", "--user", "0", packageName)
             Action.CLEAR_DATA -> shell.exec("pm", "clear", packageName)
         }
+    }
+
+    /**
+     * 快速终止一个应用：`am force-stop` 立即结束其全部进程；
+     * [freeze] 为 true 时再追加 `pm disable-user`，使其无法被系统或自身拉活。
+     *
+     * 返回**按执行顺序**排列的结果列表（终止、冻结），调用方据此生成可核验的记录——
+     * 而不是只报告一个笼统的"成功"。
+     *
+     * 说明：`am force-stop` 需要 shell 权限，未经 Shizuku 授权时必然失败，
+     * 因此调用方应先确认 [isAvailable]。
+     */
+    fun terminate(packageName: String, freeze: Boolean = true): List<ShellResult> {
+        require(packageName.isNotBlank()) { "packageName 不能为空" }
+        ensureService()
+
+        val out = mutableListOf<ShellResult>()
+        out += shell.exec("am", "force-stop", packageName)
+        if (freeze) {
+            out += shell.exec("pm", "disable-user", "--user", "0", packageName)
+        }
+        return out
     }
 
     /** 撤销单个运行时权限 */
@@ -95,10 +126,13 @@ class DisposalEngine(private val context: Context) {
     /**
      * 查询当前处于「停用」状态的应用包名集合。
      * 用于在 UI 上把「已停用」与「正常」区分开——处置完不能只靠嘴说成功。
+     *
+     * 失败时返回 **null**，与"确实一个都没有"（空集合）区分开——
+     * 否则巡检会把"查询失败"误报成"被冻结的应用又复活了"。
      */
-    fun disabledPackages(): Set<String> {
+    fun disabledPackagesOrNull(): Set<String>? {
         val r = shell.exec("pm", "list", "packages", "-d")
-        if (!r.ok) return emptySet()
+        if (!r.ok) return null
         return r.stdout.lineSequence()
             .map { it.trim() }
             .filter { it.startsWith("package:") }
@@ -106,6 +140,9 @@ class DisposalEngine(private val context: Context) {
             .filter { it.isNotBlank() }
             .toSet()
     }
+
+    /** 查询停用列表；失败时视为空集合（仅用于展示场景） */
+    fun disabledPackages(): Set<String> = disabledPackagesOrNull() ?: emptySet()
 
     /** 单个包是否处于停用状态 */
     fun isDisabled(packageName: String): Boolean = packageName in disabledPackages()

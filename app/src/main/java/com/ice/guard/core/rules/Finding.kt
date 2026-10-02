@@ -40,6 +40,8 @@ data class Finding(
     enum class Category(val display: String) {
         PERMISSION("权限"),
         APK("安装包"),
+        COMPONENT("组件"),
+        SIGNATURE("来源"),
         ENVIRONMENT("环境"),
         NETWORK("网络"),
         STORAGE("存储")

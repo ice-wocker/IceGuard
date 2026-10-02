@@ -97,4 +97,91 @@ class PermissionRulesTest {
         val score = PermissionRules.scoreOf(listOf("com.example.custom.PERMISSION"))
         assertEquals(0, score)
     }
+
+    // ———————————————————— 扩充规则（1.1.0 新增 9 条） ————————————————————
+
+    @Test
+    fun `短信加无障碍应命中无需联网的盗刷组合`() {
+        val perms = listOf(
+            "android.permission.READ_SMS",
+            "android.permission.BIND_ACCESSIBILITY_SERVICE"
+        )
+        val combos = PermissionRules.matchedCombos(perms)
+        assertTrue("应命中 combo.sms_a11y", combos.any { it.id == "combo.sms_a11y" })
+        assertEquals(
+            "读取验证码 + 代点确认应顶格为极高风险",
+            RiskLevel.CRITICAL,
+            RiskLevel.fromScore(PermissionRules.scoreOf(perms))
+        )
+    }
+
+    @Test
+    fun `联网加安装应用应命中投放组合`() {
+        val perms = listOf(
+            "android.permission.INTERNET",
+            "android.permission.REQUEST_INSTALL_PACKAGES"
+        )
+        assertTrue(
+            PermissionRules.matchedCombos(perms).any { it.id == "combo.install_net" }
+        )
+    }
+
+    @Test
+    fun `设备管理器加安装应用应判为极高风险`() {
+        val perms = listOf(
+            "android.permission.BIND_DEVICE_ADMIN",
+            "android.permission.REQUEST_INSTALL_PACKAGES"
+        )
+        assertTrue(
+            PermissionRules.matchedCombos(perms).any { it.id == "combo.admin_install" }
+        )
+        assertEquals(
+            RiskLevel.CRITICAL,
+            RiskLevel.fromScore(PermissionRules.scoreOf(perms))
+        )
+    }
+
+    @Test
+    fun `录音加摄像头加后台定位应命中本地窃听组合`() {
+        val perms = listOf(
+            "android.permission.RECORD_AUDIO",
+            "android.permission.CAMERA",
+            "android.permission.ACCESS_BACKGROUND_LOCATION"
+        )
+        assertTrue(
+            "不依赖网络也应提示窃听窃视风险",
+            PermissionRules.matchedCombos(perms).any { it.id == "combo.spy_local" }
+        )
+    }
+
+    @Test
+    fun `扩规则后普通应用仍不应越过高风险线`() {
+        // 一个典型的内容类应用：联网、相机、存储、通知，没有短信/通讯录/无障碍
+        val typical = listOf(
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+            "android.permission.CAMERA",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.POST_NOTIFICATIONS",
+            "android.permission.VIBRATE",
+            "android.permission.WAKE_LOCK"
+        )
+        val score = PermissionRules.scoreOf(typical)
+        assertTrue("常见应用不应被判为高风险，实际 $score", score < 65)
+    }
+
+    @Test
+    fun `规则 id 不应重复`() {
+        val ids = PermissionRules.COMBO_RULES.map { it.id }
+        assertEquals("组合规则 id 必须唯一", ids.size, ids.distinct().size)
+    }
+
+    @Test
+    fun `每条组合规则都应给出可读的判定理由`() {
+        PermissionRules.COMBO_RULES.forEach { rule ->
+            assertTrue("规则 ${rule.id} 缺少理由", rule.reason.isNotBlank())
+            assertTrue("规则 ${rule.id} 的条件不应为空", rule.requires.isNotEmpty())
+            assertTrue("规则 ${rule.id} 的加成应为正数", rule.bonus > 0)
+        }
+    }
 }

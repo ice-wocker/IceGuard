@@ -22,8 +22,12 @@ import java.nio.ByteOrder
  *                Res_value 结构：size(u16) res0(u8) dataType(u8) data(u32)
  *                因此 dataType 位于属性块起始偏移 +15 处。
  *
- * 本解析器目标明确：提取 <manifest> 的 package 属性、
- * <uses-permission> 的 android:name 属性。不做完整 DOM 还原。
+ * 本解析器目标明确：提取三样东西，不做完整 DOM 还原。
+ *   1. <manifest> 的 package 属性
+ *   2. <uses-permission> 的 android:name 属性
+ *   3. <activity>/<service>/<receiver>/<provider> 四类组件的
+ *      android:name、android:exported、android:permission，以及其 <intent-filter>
+ *      下声明的 <action>（用于判断"能否被外部应用唤起"）
  *
  * 健壮性设计：所有越界访问均有防护，单个属性解析失败不影响整体；
  * 解析异常统一转为 success=false 的返回值，不向调用方抛异常。
@@ -40,12 +44,52 @@ object AxmlParser {
     /** 属性块单条记录长度 */
     private const val ATTR_SIZE = 20
 
+    /** 组件类型。仅覆盖需要判断"能否被外部唤起"的四类。 */
+    enum class ComponentType(val tag: String, val label: String) {
+        ACTIVITY("activity", "Activity"),
+        SERVICE("service", "Service"),
+        RECEIVER("receiver", "Receiver"),
+        PROVIDER("provider", "Provider");
+
+        companion object {
+            fun of(tag: String): ComponentType? = entries.firstOrNull { it.tag == tag }
+        }
+    }
+
+    /**
+     * 一个组件的关键属性。
+     *
+     * @param exportedExplicit 显式声明的 android:exported；null 表示未声明
+     * @param permission       组件上声明的 android:permission（外部调用者需持有该权限）
+     * @param actions          该组件 intent-filter 中声明的 action
+     */
+    data class ComponentInfo(
+        val type: ComponentType,
+        val name: String,
+        val exportedExplicit: Boolean?,
+        val permission: String?,
+        val actions: List<String>
+    ) {
+        /**
+         * 是否可被外部应用唤起。
+         *
+         * 判定规则：显式 exported=true 即可导出；未显式声明时，按 Android 12 之前的
+         * 系统默认行为——**带 intent-filter 的组件默认可导出**。
+         * 注意这是"声明层面"的判定，不代表组件一定存在漏洞。
+         */
+        val exported: Boolean get() = exportedExplicit ?: actions.isNotEmpty()
+
+        /** 可导出且未加权限保护——这是真正需要关注的情况 */
+        val unprotected: Boolean get() = exported && permission.isNullOrBlank()
+    }
+
     /** 解析结果 */
     data class ManifestInfo(
         val packageName: String?,
         val permissions: List<String>,
         val success: Boolean,
-        val error: String? = null
+        val error: String? = null,
+        val components: List<ComponentInfo> = emptyList()
     )
 
     /**
@@ -91,6 +135,24 @@ object AxmlParser {
         val permissions = mutableListOf<String>()
         var packageName: String? = null
 
+        // —— 组件收集状态 ——
+        val components = mutableListOf<ComponentInfo>()
+        var pending: PendingComponent? = null
+        var inIntentFilter = false
+
+        fun flushComponent() {
+            val c = pending ?: return
+            components += ComponentInfo(
+                type = c.type,
+                name = c.name,
+                exportedExplicit = c.exportedExplicit,
+                permission = c.permission,
+                actions = c.actions.toList()
+            )
+            pending = null
+            inIntentFilter = false
+        }
+
         var offset = 8
         val total = bytes.size
 
@@ -113,7 +175,7 @@ object AxmlParser {
                     if (pool != null) {
                         runCatching {
                             readStartTag(buf, offset, pool)
-                        }.getOrNull()?.let { tag ->
+                        }.getOrNull()?.also { tag ->
                             when (tag.name) {
                                 "manifest" -> tag.attributes["package"]
                                     ?.takeIf { it.isNotBlank() }
@@ -123,22 +185,98 @@ object AxmlParser {
                                     ?.takeIf { it.isNotBlank() }
                                     ?.let { permissions += it }
 
-                                else -> Unit // 其余标签（application/activity/provider 等）不在提取范围
+                                "activity", "service", "receiver", "provider" -> {
+                                    // 组件之间不嵌套，遇到新组件先落盘上一个
+                                    flushComponent()
+                                    val type = ComponentType.of(tag.name)
+                                    val name = tag.attributes["name"].orEmpty()
+                                    if (type != null && name.isNotBlank()) {
+                                        pending = PendingComponent(
+                                            type = type,
+                                            name = name,
+                                            exportedExplicit = parseBool(tag.attributes["exported"]),
+                                            permission = permissionOf(tag.name, tag.attributes)
+                                        )
+                                    }
+                                }
+
+                                "intent-filter" -> if (pending != null) inIntentFilter = true
+
+                                "action" -> {
+                                    val c = pending
+                                    if (inIntentFilter && c != null) {
+                                        tag.attributes["name"]
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?.let { c.actions += it }
+                                    }
+                                }
+
+                                else -> Unit // 其余标签（application / meta-data / uses-sdk 等）不在提取范围
                             }
                         }
                     }
                 }
-                CHUNK_END_TAG -> { /* 无需处理 */ }
+                CHUNK_END_TAG -> {
+                    val pool = stringPool
+                    if (pool != null) {
+                        val endName = runCatching { readNodeName(buf, offset, pool) }.getOrNull()
+                        when (endName) {
+                            "intent-filter" -> inIntentFilter = false
+                            "activity", "service", "receiver", "provider" -> flushComponent()
+                            else -> Unit
+                        }
+                    }
+                }
             }
 
             offset += chunkSize
         }
 
+        // 清单被截断时，最后一个组件可能没有对应的 END_TAG
+        flushComponent()
+
         return ManifestInfo(
             packageName = packageName,
             permissions = permissions.distinct(),
-            success = true
+            success = true,
+            components = components
         )
+    }
+
+    /** 组件收集期间的中间态 */
+    private class PendingComponent(
+        val type: ComponentType,
+        val name: String,
+        val exportedExplicit: Boolean?,
+        val permission: String?
+    ) {
+        val actions = mutableListOf<String>()
+    }
+
+    /** 解析 "true"/"false"；未声明或无法识别时返回 null（而不是当成 false） */
+    private fun parseBool(raw: String?): Boolean? = when (raw?.trim()?.lowercase()) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
+
+    /**
+     * 取组件的访问门槛声明。
+     *
+     * `<provider>` 特殊：它的读、写权限是**分开**声明的
+     * （`android:permission` 等价于同时设置 readPermission 与 writePermission）。
+     * 只要读写之中有一个没被保护，就不算"有门槛"——不能因为写了写权限
+     * 就认为读取也是安全的。
+     *
+     * 其余组件统一用 `android:permission`。
+     */
+    private fun permissionOf(tagName: String, attrs: Map<String, String>): String? {
+        attrs["permission"]?.takeIf { it.isNotBlank() }?.let { return it }
+        if (tagName != "provider") return null
+
+        val read = attrs["readPermission"]
+        val write = attrs["writePermission"]
+        return if (!read.isNullOrBlank() && !write.isNullOrBlank()) read else null
     }
 
     // ———————————————————— StringPool ————————————————————
@@ -244,6 +382,19 @@ object AxmlParser {
         val name: String,
         val attributes: Map<String, String>
     )
+
+    /**
+     * 读取任意 node（START_TAG / END_TAG）的标签名。
+     * 两者的 node 头部布局一致：header(8) + lineNumber(4) + comment(4)，
+     * 其后的 ext 结构中 +0 为 ns、+4 为 name。
+     */
+    private fun readNodeName(buf: ByteBuffer, chunkStart: Int, pool: StringPool): String? {
+        if (chunkStart + 4 > buf.capacity()) return null
+        val headerSize = buf.getShort(chunkStart + 2).toInt() and 0xFFFF
+        val nodeBase = chunkStart + headerSize
+        if (nodeBase < 0 || nodeBase + 8 > buf.capacity()) return null
+        return pool.get(buf.getInt(nodeBase + 4))
+    }
 
     /**
      * 读取 StartTag 节点。

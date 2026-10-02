@@ -19,4 +19,14 @@
     <string name="action_back">返回</string>
 
     <string name="disclaimer">本应用全部分析在设备本地完成，不联网、不上传任何数据。评分基于权限组合与设备环境的启发式评估，用于提示关注方向，不构成对任何应用性质的判定结论。</string>
+
+    <!-- 守护相关 -->
+    <string name="guard_title">安全守护</string>
+    <string name="guard_status_on">守护中</string>
+    <string name="guard_status_off">未开启守护</string>
+    <string name="guard_center">守护中心</string>
+
+    <!-- 无障碍服务说明：如实写清楚它能看到什么、不能看到什么 -->
+    <string name="a11y_summary">用于发现「高风险应用被打开」，仅读取应用包名，不读取屏幕内容、不模拟任何操作</string>
+    <string name="a11y_description">开启后，Ice 防护可以知道你打开了哪个应用：如果被打开的应用风险评分达到你设定的阈值，会立即提醒你，或在获得 Shizuku 授权且你已开启自动处置时终止它。\n\n本服务刻意限制了自己的能力：不读取屏幕内容、不读取输入文本、不能模拟点击，因此它看到的信息仅有「哪个应用在前台」。</string>
 </resources>

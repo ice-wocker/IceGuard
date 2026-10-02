@@ -80,6 +80,8 @@ object PermissionRules {
     private const val MIC = "android.permission.RECORD_AUDIO"
     private const val CAM = "android.permission.CAMERA"
     private const val STORE = "android.permission.WRITE_EXTERNAL_STORAGE"
+    private const val CALL_LOG = "android.permission.READ_CALL_LOG"
+    private const val CALL = "android.permission.CALL_PHONE"
 
     val COMBO_RULES: List<ComboRule> = listOf(
         ComboRule(
@@ -144,6 +146,72 @@ object PermissionRules {
             bonus = 25,
             level = RiskLevel.MEDIUM,
             reason = "存储写入 + 安装应用：可从本地投放安装包并直接安装"
+        ),
+
+        // —— 以下为 1.1.0 扩充：覆盖「无联网但仍可作案」与「下载-投放-安装」链条 ——
+
+        ComboRule(
+            id = "combo.sms_a11y",
+            requires = setOf(SMS, A11Y),
+            bonus = 50,
+            level = RiskLevel.CRITICAL,
+            reason = "读取短信 + 无障碍服务：无需联网也能静默读取验证码并代你点击确认，本地即可完成盗刷"
+        ),
+        ComboRule(
+            id = "combo.sms_recv_a11y",
+            requires = setOf(SMS_RECV, A11Y),
+            bonus = 50,
+            level = RiskLevel.CRITICAL,
+            reason = "接收短信 + 无障碍服务：可实时截获验证码短信并自动完成后续操作"
+        ),
+        ComboRule(
+            id = "combo.call_net",
+            requires = setOf(CALL_LOG, NET),
+            bonus = 35,
+            level = RiskLevel.HIGH,
+            reason = "通话记录 + 联网：可导出完整通话往来用于画像或诈骗筛选"
+        ),
+        ComboRule(
+            id = "combo.call_out",
+            requires = setOf(CALL, CALL_LOG, NET),
+            bonus = 45,
+            level = RiskLevel.HIGH,
+            reason = "拨号 + 通话记录 + 联网：具备对外拨号并回传结果的能力，是电话诈骗类程序的典型特征"
+        ),
+        ComboRule(
+            id = "combo.overlay_net",
+            requires = setOf(OVERLAY, NET),
+            bonus = 35,
+            level = RiskLevel.HIGH,
+            reason = "悬浮窗 + 联网：可接收远端指令动态绘制覆盖层，遮挡界面诱导操作"
+        ),
+        ComboRule(
+            id = "combo.install_net",
+            requires = setOf(INSTALL, NET),
+            bonus = 40,
+            level = RiskLevel.HIGH,
+            reason = "联网 + 安装应用：可自行下载安装包并静默投放，是「拉活 / 全家桶」的完整闭环"
+        ),
+        ComboRule(
+            id = "combo.admin_install",
+            requires = setOf(ADMIN, INSTALL),
+            bonus = 50,
+            level = RiskLevel.CRITICAL,
+            reason = "设备管理器 + 安装应用：既难以卸载又能自行投放新程序，清除成本极高"
+        ),
+        ComboRule(
+            id = "combo.profile_net",
+            requires = setOf(CONTACTS, SMS, CALL_LOG, NET),
+            bonus = 55,
+            level = RiskLevel.CRITICAL,
+            reason = "通讯录 + 短信 + 通话记录 + 联网：可一次性导出完整社交与通信画像，符合数据贩售类程序特征"
+        ),
+        ComboRule(
+            id = "combo.spy_local",
+            requires = setOf(MIC, CAM, BGLOC),
+            bonus = 45,
+            level = RiskLevel.HIGH,
+            reason = "录音 + 摄像头 + 后台定位：不依赖网络也可持续采集成音视频与轨迹，本地留存同样构成窃听窃视"
         )
     )
 

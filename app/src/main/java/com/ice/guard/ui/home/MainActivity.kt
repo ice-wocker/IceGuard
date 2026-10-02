@@ -15,6 +15,7 @@ import com.ice.guard.di.AppContainer
 import com.ice.guard.core.privilege.ShizukuBridge
 import com.ice.guard.ui.apk.ApkScanActivity
 import com.ice.guard.ui.audit.AuditActivity
+import com.ice.guard.ui.guard.GuardCenterActivity
 import com.ice.guard.ui.privilege.PrivilegeGuideActivity
 import kotlinx.coroutines.launch
 
@@ -66,6 +67,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.privilegeButton).setOnClickListener {
             startActivity(Intent(this, PrivilegeGuideActivity::class.java))
         }
+        findViewById<View>(R.id.guardCard).setOnClickListener {
+            startActivity(Intent(this, GuardCenterActivity::class.java))
+        }
 
         loadLastReport()
     }
@@ -73,6 +77,24 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         renderPrivilegeSubtitle()
+        renderGuardCard()
+    }
+
+    /** 首页如实展示守护状态与真实的处置次数，而不是一句写着好看的标语 */
+    private fun renderGuardCard() {
+        val policy = AppContainer.guardConfig.load()
+        val actions = AppContainer.interceptLog.actions().size
+        val title = findViewById<TextView>(R.id.guardCardTitle) ?: return
+        val subtitle = findViewById<TextView>(R.id.guardCardSubtitle) ?: return
+
+        title.text = if (policy.guardMode) "守护中" else "未开启守护"
+        title.setTextColor(getColor(if (policy.guardMode) R.color.risk_safe else R.color.text_primary))
+
+        subtitle.text = buildString {
+            append(if (policy.autoRespond) "自动终止已开启" else "仅告警")
+            append(" · 阈值 ${policy.threshold}")
+            append(" · 已处置 $actions 次")
+        }
     }
 
     /** 让首页的「权限与处置」入口如实显示当前授权状态，而不是一句写着好看的口号 */

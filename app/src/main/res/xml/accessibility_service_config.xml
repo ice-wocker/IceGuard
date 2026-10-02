@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Ice 防护 · 无障碍服务配置（最小能力原则）
+
+    刻意不开启的能力：
+      · canRetrieveWindowContent = false —— 读不到屏幕内容，只拿得到事件里的包名
+      · canPerformGestures        （不声明）—— 无法模拟点击/滑动
+      · 不监听 typeAllMask，只监听窗口状态变化 —— 不采集文本、不采集输入
+
+    因此本服务实际掌握的信息等价于「哪个应用刚切到前台」，
+    不足以窥探用户在任何应用内的操作内容。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/a11y_description"
+    android:notificationTimeout="200"
+    android:summary="@string/a11y_summary" />

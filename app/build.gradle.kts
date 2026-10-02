@@ -11,8 +11,8 @@ android {
         applicationId = "com.ice.guard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -60,6 +60,10 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // 周期巡检（守护模式）：WorkManager 负责在系统层面持久化排程，
+    // 设备重启后仍能恢复，无需自建轮询或后台常驻。
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     // Shizuku API（Apache-2.0）：以 ADB（无线调试）权限执行系统命令，
     // 用于「处置」已标记的高风险应用。仅引入官方 API 与 provider 两个制品，

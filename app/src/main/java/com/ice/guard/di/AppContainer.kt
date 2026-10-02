@@ -5,6 +5,8 @@ import com.ice.guard.core.scanner.ApkScanEngine
 import com.ice.guard.core.scanner.EnvironmentCheckEngine
 import com.ice.guard.core.privilege.DisposalEngine
 import com.ice.guard.core.scanner.PermissionAuditEngine
+import com.ice.guard.data.GuardConfigStore
+import com.ice.guard.data.InterceptLogStore
 import com.ice.guard.data.ScanHistoryStore
 
 /**
@@ -30,4 +32,10 @@ object AppContainer {
     val disposal: DisposalEngine by lazy { DisposalEngine(appContext) }
 
     val historyStore: ScanHistoryStore by lazy { ScanHistoryStore(appContext) }
+
+    /** 守护策略（自动处置开关、阈值、各通道开关） */
+    val guardConfig: GuardConfigStore by lazy { GuardConfigStore(appContext) }
+
+    /** 本地拦截日志 */
+    val interceptLog: InterceptLogStore by lazy { InterceptLogStore(appContext) }
 }

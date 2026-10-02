@@ -20,6 +20,8 @@ class PermissionAuditEngine(private val context: Context) {
 
     private val pm: PackageManager get() = context.packageManager
 
+    private val signatures = SignatureInspector(context)
+
     /** 单个应用的审计结果 */
     data class AppAuditResult(
         val packageName: String,
@@ -28,7 +30,11 @@ class PermissionAuditEngine(private val context: Context) {
         val declaredPermissions: List<String>,
         val score: Int,
         val level: RiskLevel,
-        val findings: List<Finding>
+        val findings: List<Finding>,
+        /** 清单中声明的组件（用于展示暴露面） */
+        val components: List<ComponentAnalyzer.ExportedComponent> = emptyList(),
+        /** 安装来源与签名信息；取不到时为 null */
+        val source: SignatureInspector.InstallSource? = null
     )
 
     /**
@@ -38,7 +44,7 @@ class PermissionAuditEngine(private val context: Context) {
     fun auditAll(includeSystem: Boolean = false): List<AppAuditResult> {
         val packages: List<PackageInfo> = try {
             @Suppress("DEPRECATION")
-            pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+            pm.getInstalledPackages(PackageManager.GET_PERMISSIONS or ComponentAnalyzer.PACKAGE_FLAGS)
         } catch (t: Throwable) {
             emptyList()
         }
@@ -56,7 +62,7 @@ class PermissionAuditEngine(private val context: Context) {
     fun auditOne(packageName: String): AppAuditResult? {
         val info = try {
             @Suppress("DEPRECATION")
-            pm.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+            pm.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS or ComponentAnalyzer.PACKAGE_FLAGS)
         } catch (t: Throwable) {
             return null
         }
@@ -72,24 +78,53 @@ class PermissionAuditEngine(private val context: Context) {
     private fun audit(info: PackageInfo): AppAuditResult {
         val appInfo: ApplicationInfo? = info.applicationInfo
         val declared = info.requestedPermissions?.toList().orEmpty()
+        val appLabel = appInfo
+            ?.let { runCatching { pm.getApplicationLabel(it).toString() }.getOrNull() }
+            ?: info.packageName
 
-        val score = PermissionRules.scoreOf(declared)
+        val components = runCatching { ComponentAnalyzer.fromPackageInfo(info) }
+            .getOrDefault(emptyList())
+        val source = runCatching { signatures.inspect(info.packageName) }.getOrNull()
+
+        val permScore = PermissionRules.scoreOf(declared)
+        val allFindings = buildFindings(declared, components, source, appLabel, launcherOf(info.packageName))
+        val score = compositeScore(permScore, allFindings)
         val level = RiskLevel.fromScore(score)
-        val findings = buildFindings(declared)
 
         return AppAuditResult(
             packageName = info.packageName,
-            appLabel = appInfo?.let { runCatching { pm.getApplicationLabel(it).toString() }.getOrNull() }
-                ?: info.packageName,
+            appLabel = appLabel,
             isSystem = appInfo?.let { (it.flags and ApplicationInfo.FLAG_SYSTEM) != 0 } ?: false,
             declaredPermissions = declared,
             score = score,
             level = level,
-            findings = findings
+            findings = allFindings,
+            components = components,
+            source = source
         )
     }
 
-    private fun buildFindings(declared: List<String>): List<Finding> {
+    /**
+     * 复合评分 = 权限分 + （组件 / 来源证据权重之和 × 0.5）。
+     *
+     * 折算系数与组合加成的 0.6 出于同一考虑：证据只做加成，不让单项直接顶格。
+     * 权限分仍是主项——它回答"应用能做什么"，组件与来源只回答"暴露面有多大、从哪来"。
+     */
+    private fun compositeScore(permissionScore: Int, findings: List<Finding>): Int {
+        val evidence = findings.filter {
+            it.category == Finding.Category.COMPONENT || it.category == Finding.Category.SIGNATURE
+        }
+        val bonus = (evidence.sumOf { it.weight } * 0.5).toInt()
+        return (permissionScore + bonus).coerceIn(0, 100)
+    }
+
+    private fun buildFindings(
+        declared: List<String>,
+        components: List<ComponentAnalyzer.ExportedComponent>,
+        source: SignatureInspector.InstallSource?,
+        appLabel: String,
+        launcherActivity: String?
+    ): List<Finding> {
         val out = mutableListOf<Finding>()
 
         // 1) 高危单权限逐条列出
@@ -119,8 +154,19 @@ class PermissionAuditEngine(private val context: Context) {
             )
         }
 
+        // 3) 组件暴露面：应用"真的提供了"哪些能力、哪些组件对外可见
+        out += ComponentAnalyzer.findings(components, appLabel, launcherActivity)
+
+        // 4) 安装来源与调试标志
+        source?.let { out += signatures.findings(it, appLabel) }
+
         return out.sortedByDescending { it.weight }
     }
+
+    /** 启动器 Activity 的完整类名，用于把"桌面图标"从暴露面统计里排除 */
+    private fun launcherOf(packageName: String): String? = runCatching {
+        pm.getLaunchIntentForPackage(packageName)?.component?.className
+    }.getOrNull()
 
     /** 权限名 → 中文可读名。未收录的退回短名。 */
     private fun readablePermission(perm: String): String = when (perm) {

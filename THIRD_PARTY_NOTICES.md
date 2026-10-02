@@ -17,6 +17,7 @@
 | AndroidX Lifecycle Runtime KTX | 2.8.4 | Apache-2.0 | The Android Open Source Project | 协程生命周期 |
 | Kotlin Standard Library | 1.9.24 | Apache-2.0 | JetBrains s.r.o. | 语言运行时 |
 | kotlinx.coroutines | 1.8.1 | Apache-2.0 | JetBrains s.r.o. | 协程 |
+| AndroidX WorkManager (`androidx.work:work-runtime-ktx`) | 2.9.1 | Apache-2.0 | The Android Open Source Project | 周期巡检排程（守护模式） |
 | **Shizuku API** (`dev.rikka.shizuku:api`) | 13.1.5 | **Apache-2.0** | RikkaApps | 调用 Shizuku 服务 |
 | **Shizuku Provider** (`dev.rikka.shizuku:provider`) | 13.1.5 | **Apache-2.0** | RikkaApps | Shizuku 接入点 |
 

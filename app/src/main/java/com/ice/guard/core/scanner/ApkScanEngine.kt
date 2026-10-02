@@ -70,9 +70,17 @@ class ApkScanEngine(private val context: Context) {
     private fun scan(apk: File): ApkScanResult {
         val manifest = AxmlParser.parseFromApk(apk)
         val perms = manifest.permissions
-        val score = PermissionRules.scoreOf(perms)
-        val level = RiskLevel.fromScore(score)
         val sha = runCatching { sha256Of(apk) }.getOrNull()
+
+        // 组件级分析：APK 未安装，只能看清单里声明了什么内容
+        val componentFindings = runCatching {
+            ComponentAnalyzer.findings(ComponentAnalyzer.fromManifest(manifest), apk.name)
+        }.getOrDefault(emptyList())
+
+        val permScore = PermissionRules.scoreOf(perms)
+        val evidenceBonus = (componentFindings.sumOf { it.weight } * 0.5).toInt()
+        val score = (permScore + evidenceBonus).coerceIn(0, 100)
+        val level = RiskLevel.fromScore(score)
 
         val findings = mutableListOf<Finding>()
 
@@ -103,7 +111,11 @@ class ApkScanEngine(private val context: Context) {
             )
         }
 
-        return ApkScanResult(apk, manifest, sha, score, level, findings)
+        // 组件发现项独立于分数门槛：即使权限平平，
+        // "这个安装包自带无障碍 / 通知读取服务"也必须让用户看到
+        findings += componentFindings
+
+        return ApkScanResult(apk, manifest, sha, score, level, findings.sortedByDescending { it.weight })
     }
 
     private fun collectApks(dir: File, out: MutableList<File>, depth: Int, maxDepth: Int, limit: Int) {
